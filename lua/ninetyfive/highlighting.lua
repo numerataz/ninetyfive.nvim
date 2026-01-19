@@ -18,8 +18,12 @@ local function blend_color(fg, opacity)
     local bg = get_bg_color()
     local inv = 1 - opacity
 
-    local r = math.floor((math.floor(fg / 0x10000) % 0x100) * opacity + (math.floor(bg / 0x10000) % 0x100) * inv)
-    local g = math.floor((math.floor(fg / 0x100) % 0x100) * opacity + (math.floor(bg / 0x100) % 0x100) * inv)
+    local r = math.floor(
+        (math.floor(fg / 0x10000) % 0x100) * opacity + (math.floor(bg / 0x10000) % 0x100) * inv
+    )
+    local g = math.floor(
+        (math.floor(fg / 0x100) % 0x100) * opacity + (math.floor(bg / 0x100) % 0x100) * inv
+    )
     local b = math.floor((fg % 0x100) * opacity + (bg % 0x100) * inv)
 
     return r * 0x10000 + g * 0x100 + b
@@ -319,16 +323,19 @@ function M.highlight_completion(completion_text, bufnr)
             if i == 1 then
                 current_hl = hl
             elseif hl ~= current_hl then
-                segments[#segments + 1] = { line_text:sub(current_start, i - 1), get_ghost_highlight(current_hl) }
+                segments[#segments + 1] =
+                    { line_text:sub(current_start, i - 1), get_ghost_highlight(current_hl) }
                 current_start, current_hl = i, hl
             end
         end
 
         if current_start <= #line_text then
-            segments[#segments + 1] = { line_text:sub(current_start), get_ghost_highlight(current_hl) }
+            segments[#segments + 1] =
+                { line_text:sub(current_start), get_ghost_highlight(current_hl) }
         end
 
-        result[#result + 1] = #segments > 0 and segments or { { line_text, get_ghost_highlight(nil) } }
+        result[#result + 1] = #segments > 0 and segments
+            or { { line_text, get_ghost_highlight(nil) } }
         char_offset = char_offset + #line_text + 1
     end
 
@@ -411,7 +418,8 @@ function M.highlight_completion_with_matches(completion_text, bufnr, match_posit
             current_matched = is_matched
         elseif hl ~= current_hl or is_matched ~= current_matched then
             local segment_text = first_line:sub(current_start, i - 1)
-            local segment_hl = current_matched and get_matched_highlight(current_hl) or get_ghost_highlight(current_hl)
+            local segment_hl = current_matched and get_matched_highlight(current_hl)
+                or get_ghost_highlight(current_hl)
             segments[#segments + 1] = { segment_text, segment_hl }
             current_start = i
             current_hl = hl
@@ -421,7 +429,8 @@ function M.highlight_completion_with_matches(completion_text, bufnr, match_posit
 
     if current_start <= #first_line then
         local segment_text = first_line:sub(current_start)
-        local segment_hl = current_matched and get_matched_highlight(current_hl) or get_ghost_highlight(current_hl)
+        local segment_hl = current_matched and get_matched_highlight(current_hl)
+            or get_ghost_highlight(current_hl)
         segments[#segments + 1] = { segment_text, segment_hl }
     end
 
@@ -438,7 +447,7 @@ end
 -- Returns virt_text format: {{text, hl}, {text, hl}, ...}
 function M.highlight_ghost_text(text, bufnr)
     if not text or text == "" then
-        return {{ "", get_ghost_highlight(nil) }}
+        return { { "", get_ghost_highlight(nil) } }
     end
 
     bufnr = bufnr or vim.api.nvim_get_current_buf()
@@ -446,14 +455,14 @@ function M.highlight_ghost_text(text, bufnr)
 
     -- Without treesitter, return with default ghost highlight
     if not lang then
-        return {{ text, get_ghost_highlight(nil) }}
+        return { { text, get_ghost_highlight(nil) } }
     end
 
     local prefix, suffix = get_buffer_context(bufnr)
     local char_highlights = get_ts_char_highlights(text, lang, prefix, suffix)
     local segments = build_segments(text, char_highlights, get_ghost_highlight)
 
-    return #segments > 0 and segments or {{ text, get_ghost_highlight(nil) }}
+    return #segments > 0 and segments or { { text, get_ghost_highlight(nil) } }
 end
 
 vim.api.nvim_create_autocmd("ColorScheme", {

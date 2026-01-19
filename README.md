@@ -97,8 +97,9 @@ require("ninetyfive").setup({
   -- When `true`, enables the plugin on NeoVim startup
   enable_on_startup = true,
 
-  -- When `true`, disables 'ghost text' suggestions from NinetyFive
-  use_cmp = false,
+  -- Controls nvim-cmp integration: "auto" disables ghost text when the cmp "ninetyfive" source
+  -- is configured, set true to force cmp-only mode, or false for inline hints
+  use_cmp = "auto",
 
   -- Update server URI, mostly for debugging
   server = "wss://api.ninetyfive.gg",
@@ -259,12 +260,15 @@ cmp.setup({
 })
 ```
 
-Additionally, you can disable inline suggestions in NinetyFive's setup:
+Inline suggestions are disabled automatically when the NinetyFive cmp source is
+configured, but you can force cmp-only mode in NinetyFive's setup:
 ```lua
 require("ninetyfive").setup({
     use_cmp = true
 })
 ```
+
+Set `use_cmp = false` to always show inline suggestions even with the cmp source enabled.
 
 ## Development
 

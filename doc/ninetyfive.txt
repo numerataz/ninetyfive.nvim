@@ -56,8 +56,8 @@ Default values:
       enable_on_startup = true,
       -- Update server URI, mostly for debugging
       server = "wss://api.ninetyfive.gg",
-      -- When true, indicates Ninetyfive is used exclusively as a cmp source
-      use_cmp = false,
+      -- Controls cmp integration: "auto" (default), true, or false
+      use_cmp = "auto",
       mappings = {
           -- Sets a global mapping to accept a suggestion
           accept = "<Tab>",

@@ -11,17 +11,6 @@ local completion_bufnr = nil
 
 local log = require("ninetyfive.util.log")
 local lsp_util = vim.lsp.util
-local function current_config()
-    if _G.Ninetyfive and _G.Ninetyfive.config then
-        return _G.Ninetyfive.config
-    end
-    return config.options or {}
-end
-
-local function is_cmp_mode_enabled()
-    local cfg = current_config()
-    return cfg.use_cmp == true
-end
 
 local function trigger_cmp_complete()
     local ok, cmp = pcall(require, "cmp")
@@ -84,7 +73,7 @@ suggestion.show = function(completion)
     if vim.fn.mode() ~= "i" then
         return
     end
-    local cmp_mode = is_cmp_mode_enabled()
+    local cmp_mode = config.should_use_cmp_mode()
 
     -- Build text up to the next flush
     local parts = {}

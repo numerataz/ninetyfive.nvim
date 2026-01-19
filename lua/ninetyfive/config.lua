@@ -3,6 +3,84 @@ local Completion = require("ninetyfive.completion")
 
 local Ninetyfive = {}
 
+local function normalize_use_cmp(value)
+    if value == nil then
+        return "auto"
+    end
+
+    if type(value) == "boolean" then
+        return value
+    end
+
+    if type(value) == "string" then
+        local normalized = value:lower()
+        if normalized == "auto" then
+            return "auto"
+        elseif normalized == "true" then
+            return true
+        elseif normalized == "false" then
+            return false
+        end
+    end
+
+    error('`use_cmp` must be one of: true, false, or "auto".')
+end
+
+local function get_runtime_config()
+    if _G.Ninetyfive and _G.Ninetyfive.config then
+        return _G.Ninetyfive.config
+    end
+    return Ninetyfive.options or {}
+end
+
+local function contains_ninetyfive_source(sources)
+    if type(sources) ~= "table" then
+        return false
+    end
+
+    for _, source in ipairs(sources) do
+        if type(source) == "table" then
+            if source.name == "ninetyfive" then
+                return true
+            end
+
+            if contains_ninetyfive_source(source) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function has_configured_cmp_source()
+    local ok, cmp = pcall(require, "cmp")
+    if not ok or not cmp then
+        return false
+    end
+
+    if type(cmp.get_config) ~= "function" then
+        return false
+    end
+
+    local ok_config, cmp_config = pcall(cmp.get_config)
+    if not ok_config or type(cmp_config) ~= "table" then
+        return false
+    end
+
+    local sources = cmp_config.sources
+    if type(sources) == "function" then
+        local ok_sources, resolved_sources = pcall(sources)
+        if ok_sources then
+            sources = resolved_sources
+        else
+            sources = nil
+        end
+    end
+
+    return contains_ninetyfive_source(sources)
+end
+
 --- Ninetyfive configuration with its default values.
 ---
 ---@type table
@@ -15,8 +93,8 @@ Ninetyfive.options = {
     enable_on_startup = true,
     -- Update server URI, mostly for debugging
     server = "wss://api.ninetyfive.gg",
-    -- When true, indicates Ninetyfive is used exclusively as a cmp source
-    use_cmp = false,
+    -- Controls cmp integration: "auto" (default), true, or false
+    use_cmp = "auto",
     mappings = {
         -- Sets a global mapping to accept a suggestion
         accept = "<Tab>",
@@ -46,6 +124,8 @@ local defaults = vim.deepcopy(Ninetyfive.options)
 ---@private
 function Ninetyfive.defaults(options)
     Ninetyfive.options = vim.deepcopy(vim.tbl_deep_extend("keep", options or {}, defaults or {}))
+
+    Ninetyfive.options.use_cmp = normalize_use_cmp(Ninetyfive.options.use_cmp)
 
     -- let your user know that they provided a wrong value, this is reported when your plugin is executed.
     assert(
@@ -115,6 +195,23 @@ function Ninetyfive.setup(options)
     end
 
     return Ninetyfive.options
+end
+
+function Ninetyfive.should_use_cmp_mode()
+    local cfg = get_runtime_config()
+    local use_cmp = cfg.use_cmp
+
+    if use_cmp == true then
+        return true
+    elseif use_cmp == false then
+        return false
+    elseif type(use_cmp) == "string" and use_cmp:lower() == "true" then
+        return true
+    elseif type(use_cmp) == "string" and use_cmp:lower() == "false" then
+        return false
+    end
+
+    return has_configured_cmp_source()
 end
 
 return Ninetyfive
