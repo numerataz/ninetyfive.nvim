@@ -16,8 +16,12 @@ function M.compute_delta(old_text, new_text)
 
     -- Find common suffix (by byte, don't overlap with prefix)
     local j = 0
-    while j < #old_text - (i - 1) and j < #new_text - (i - 1)
-          and old_text:sub(#old_text - j, #old_text - j) == new_text:sub(#new_text - j, #new_text - j) do
+    while
+        j < #old_text - (i - 1)
+        and j < #new_text - (i - 1)
+        and old_text:sub(#old_text - j, #old_text - j)
+            == new_text:sub(#new_text - j, #new_text - j)
+    do
         j = j + 1
     end
 

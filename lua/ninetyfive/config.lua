@@ -23,7 +23,7 @@ local function normalize_use_cmp(value)
         end
     end
 
-    error("`use_cmp` must be one of: true, false, or \"auto\".")
+    error('`use_cmp` must be one of: true, false, or "auto".')
 end
 
 local function get_runtime_config()
@@ -43,7 +43,7 @@ local function contains_ninetyfive_source(sources)
             if source.name == "ninetyfive" then
                 return true
             end
-            
+
             if contains_ninetyfive_source(source) then
                 return true
             end

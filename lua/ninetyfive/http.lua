@@ -25,7 +25,9 @@ if ok_ffi then
         "curl",
     }
 
-    pcall(ffi.cdef, [[
+    pcall(
+        ffi.cdef,
+        [[
     typedef void CURL;
     typedef void CURLM;
     typedef void CURLSH;
@@ -79,7 +81,8 @@ if ok_ffi then
     CURLMcode curl_multi_socket_action(CURLM *multi, curl_socket_t s, int ev_bitmask, int *running_handles);
     CURLMcode curl_multi_assign(CURLM *multi, curl_socket_t s, void *sockp);
     struct CURLMsg *curl_multi_info_read(CURLM *multi, int *msgs_in_queue);
-    ]])
+    ]]
+    )
 
     local function try_load()
         for _, name in ipairs(lib_names) do

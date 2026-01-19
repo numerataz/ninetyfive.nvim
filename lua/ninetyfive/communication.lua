@@ -275,11 +275,21 @@ function Communication:send_file_content(opts)
 
                 local ok, message = pcall(vim.json.encode, payload)
                 if not ok then
-                    log.debug("comm", "failed to encode file-content payload: %s", tostring(message))
+                    log.debug(
+                        "comm",
+                        "failed to encode file-content payload: %s",
+                        tostring(message)
+                    )
                     return
                 end
 
-                log.debug("comm", "-> [file-content] path=%s, len=%d, text=%q", path, #content, content)
+                log.debug(
+                    "comm",
+                    "-> [file-content] path=%s, len=%d, text=%q",
+                    path,
+                    #content,
+                    content
+                )
 
                 if not websocket.send_message(message) then
                     log.debug("comm", "failed to send file-content for %s", bufname)

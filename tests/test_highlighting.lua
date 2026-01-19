@@ -113,7 +113,11 @@ T["blended color is dimmer than original"] = function()
     -- With 60% opacity blending white (0xffffff) with black (0x000000),
     -- result should be around 0x999999 (153, 153, 153)
     if hl.fg then
-        MiniTest.expect.equality(hl.fg < 0xffffff, true, "Blended color should be dimmer than original")
+        MiniTest.expect.equality(
+            hl.fg < 0xffffff,
+            true,
+            "Blended color should be dimmer than original"
+        )
         MiniTest.expect.equality(hl.fg > 0x000000, true, "Blended color should not be fully black")
     end
 end
@@ -130,7 +134,11 @@ T["highlight_ghost_text returns correct format"] = function()
     MiniTest.expect.equality(#result >= 1, true, "Result should have at least one segment")
     -- Each segment should be {text, highlight_group}
     MiniTest.expect.equality(type(result[1][1]), "string", "First element should be text")
-    MiniTest.expect.equality(type(result[1][2]), "string", "Second element should be highlight group")
+    MiniTest.expect.equality(
+        type(result[1][2]),
+        "string",
+        "Second element should be highlight group"
+    )
 end
 
 T["highlight_ghost_text handles empty input"] = function()
@@ -165,7 +173,11 @@ T["highlight_ghost_text preserves full text"] = function()
     ]])
 
     local full_text = eval_lua("_G.full_text")
-    MiniTest.expect.equality(full_text, "function foo(x, y)", "All segments should concatenate to original text")
+    MiniTest.expect.equality(
+        full_text,
+        "function foo(x, y)",
+        "All segments should concatenate to original text"
+    )
 end
 
 T["highlight_ghost_text uses ghost highlights"] = function()
