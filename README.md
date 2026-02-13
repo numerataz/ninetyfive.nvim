@@ -27,9 +27,9 @@ Very fast autocomplete
 
 ```lua
 -- stable version
-use {"ninetyfive-gg/ninetyfive.nvim", tag = "*" }
+use {"numerataz/ninetyfive.nvim", tag = "*" }
 -- dev version
-use {"ninetyfive-gg/ninetyfive.nvim"}
+use {"numerataz/ninetyfive.nvim"}
 ```
 
 </td>
@@ -44,9 +44,9 @@ use {"ninetyfive-gg/ninetyfive.nvim"}
 
 ```vim
 " stable version
-Plug "ninetyfive-gg/ninetyfive.nvim", { "tag": "*" }
+Plug "numerataz/ninetyfive.nvim", { "tag": "*" }
 " dev version
-Plug "ninetyfive-gg/ninetyfive.nvim"
+Plug "numerataz/ninetyfive.nvim"
 ```
 
 </td>
@@ -61,9 +61,9 @@ Plug "ninetyfive-gg/ninetyfive.nvim"
 
 ```lua
 -- stable version
-require("lazy").setup({{"ninetyfive-gg/ninetyfive.nvim", version = "*"}})
+require("lazy").setup({{"numerataz/ninetyfive.nvim", version = "*"}})
 -- dev version
-require("lazy").setup({"ninetyfive-gg/ninetyfive.nvim"})
+require("lazy").setup({"numerataz/ninetyfive.nvim"})
 ```
 
 </td>
@@ -135,7 +135,7 @@ require("ninetyfive").setup({
 
 ```lua
 use {
-  "ninetyfive-gg/ninetyfive.nvim",
+  "numerataz/ninetyfive.nvim",
   tag = "*", -- use stable version
   config = function()
     require("ninetyfive").setup({
@@ -160,7 +160,7 @@ use {
 Add to your `~/.config/nvim/init.vim` or `~/.vimrc`:
 
 ```vim
-Plug 'ninetyfive-gg/ninetyfive.nvim', { 'tag': '*' }
+Plug 'numerataz/ninetyfive.nvim', { 'tag': '*' }
 
 " After plug#end(), add the setup configuration
 lua << EOF
@@ -186,7 +186,7 @@ Update your lazy config (generally in `~/.config/nvim/init.lua`) or create a plu
 
 ```lua
 return {
-  "ninetyfive-gg/ninetyfive.nvim",
+  "numerataz/ninetyfive.nvim",
   version = "*", -- use stable version, or `false` for dev version
   config = function()
     require("ninetyfive").setup({
