@@ -9,7 +9,7 @@ description = {
   detailed = [[
   	TODO
    ]],
-  homepage = 'https://github.com/ninetyfive-gg/ninetyfive.nvim',
+  homepage = 'https://github.com/numerataz/ninetyfive.nvim',
   license = 'MIT',
 }
 
@@ -18,7 +18,7 @@ dependencies = {
 }
 
 source = {
-  url = 'git://github.com/ninetyfive-gg/ninetyfive.nvim',
+  url = 'git://github.com/numerataz/ninetyfive.nvim',
 }
 
 build = {
