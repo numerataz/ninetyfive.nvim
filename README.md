@@ -20,6 +20,31 @@ Very fast autocomplete
 <tr>
 <td>
 
+[Neovim's plugin manager](https://neovim.io/doc/user/pack/#_plugin-manager)
+
+</td>
+<td>
+
+```lua
+vim.pack.add({
+  "https://github.com/numerataz/ninetyfive.nvim"
+})
+
+-- Then you can call setup
+require("ninetyfive").setup({
+  enable_on_startup = true, -- Enable plugin on startup
+  mappings = {
+    accept = "<tab>", -- Change default keybindings
+    reject = "<C-w>", -- Change default keybindings
+  }
+})
+```
+
+</td>
+</tr>
+<tr>
+<td>
+
 [wbthomason/packer.nvim](https://github.com/wbthomason/packer.nvim)
 
 </td>
