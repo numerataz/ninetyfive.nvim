@@ -279,6 +279,157 @@ function git.get_blob(hash, file, callback)
     end)
 end
 
+-- `git check-ignore` is asked about the current file on every edit, so instead of
+-- spawning git each time, keep one `git check-ignore --stdin` process per repo
+-- root and stream paths through it. git only reads ignore rules when it starts,
+-- so processes (and cached repo roots) are replaced once they are older than
+-- CHECK_IGNORE_MAX_AGE_MS, or when a .gitignore or .git/info/exclude is saved.
+local CHECK_IGNORE_MAX_AGE_MS = 60 * 1000
+local check_ignore_procs = {}
+local repo_root_cache = {}
+
+local function shell_quote(s)
+    return "'" .. s:gsub("'", "'\\''") .. "'"
+end
+
+local function check_ignore_once(root, file_path, callback)
+    uv_run_async("git check-ignore " .. shell_quote(file_path), root, function(result)
+        callback(result ~= nil and result ~= "")
+    end)
+end
+
+local function retire_check_ignore(proc)
+    if check_ignore_procs[proc.root] == proc then
+        check_ignore_procs[proc.root] = nil
+    end
+    -- Closing stdin lets git answer whatever is already queued, then exit.
+    if not proc.stdin:is_closing() then
+        proc.stdin:close()
+    end
+end
+
+local function spawn_check_ignore(root)
+    local stdin = uv.new_pipe(false)
+    local stdout = uv.new_pipe(false)
+    local proc =
+        { root = root, stdin = stdin, started = uv.now(), pending = {}, fields = {}, buf = "" }
+
+    local handle
+    handle = uv.spawn("git", {
+        args = { "check-ignore", "--stdin", "-z", "--verbose", "--non-matching" },
+        cwd = root,
+        stdio = { stdin, stdout, nil },
+    }, function()
+        handle:close()
+    end)
+
+    if not handle then
+        stdin:close()
+        stdout:close()
+        return nil
+    end
+
+    stdout:read_start(function(_, data)
+        if not data then
+            -- EOF or error: anything still unanswered goes through a one-shot check.
+            retire_check_ignore(proc)
+            stdout:read_stop()
+            stdout:close()
+            local pending = proc.pending
+            proc.pending = {}
+            for _, req in ipairs(pending) do
+                check_ignore_once(root, req.path, req.callback)
+            end
+            return
+        end
+
+        proc.buf = proc.buf .. data
+        while true do
+            local nul = proc.buf:find("\0", 1, true)
+            if not nul then
+                break
+            end
+            proc.fields[#proc.fields + 1] = proc.buf:sub(1, nul - 1)
+            proc.buf = proc.buf:sub(nul + 1)
+
+            -- Each answer is <source> NUL <linenum> NUL <pattern> NUL <pathname> NUL;
+            -- source is empty when no pattern matched, and a matching pattern
+            -- starting with "!" means the path is explicitly not ignored.
+            if #proc.fields == 4 then
+                local source, pattern = proc.fields[1], proc.fields[3]
+                proc.fields = {}
+                local req = table.remove(proc.pending, 1)
+                if req then
+                    req.callback(source ~= "" and pattern:sub(1, 1) ~= "!")
+                end
+            end
+        end
+    end)
+
+    return proc
+end
+
+local function check_ignore(root, file_path, callback)
+    local proc = check_ignore_procs[root]
+    if proc and uv.now() - proc.started > CHECK_IGNORE_MAX_AGE_MS then
+        retire_check_ignore(proc)
+        proc = nil
+    end
+    if not proc then
+        proc = spawn_check_ignore(root)
+        if not proc then
+            check_ignore_once(root, file_path, callback)
+            return
+        end
+        check_ignore_procs[root] = proc
+    end
+
+    table.insert(proc.pending, { path = file_path, callback = callback })
+    if not proc.stdin:write(file_path .. "\0") then
+        table.remove(proc.pending)
+        retire_check_ignore(proc)
+        check_ignore_once(root, file_path, callback)
+    end
+end
+
+local function get_repo_root_cached(callback)
+    get_buffer_dir_async(function(buffer_dir)
+        local hit = repo_root_cache[buffer_dir]
+        if hit and uv.now() - hit.at <= CHECK_IGNORE_MAX_AGE_MS then
+            callback(hit.root or nil)
+            return
+        end
+        uv_run_async("git rev-parse --show-toplevel", buffer_dir, function(result)
+            local root = result and result ~= "" and result or nil
+            repo_root_cache[buffer_dir] = { root = root or false, at = uv.now() }
+            callback(root)
+        end)
+    end)
+end
+
+local is_windows = package.config:sub(1, 1) == "\\"
+
+local function is_absolute(path)
+    return path:sub(1, 1) == "/" or path:match("^%a:[/\\]") ~= nil
+end
+
+local function normalize_path(path)
+    path = path:gsub("\\", "/")
+    return is_windows and path:lower() or path
+end
+
+function git.reset_ignore_cache()
+    for _, proc in pairs(check_ignore_procs) do
+        retire_check_ignore(proc)
+    end
+    repo_root_cache = {}
+end
+
+vim.api.nvim_create_autocmd("BufWritePost", {
+    pattern = { ".gitignore", "*/.git/info/exclude" },
+    callback = git.reset_ignore_cache,
+})
+
 function git.is_ignored(file_path, callback)
     callback = ensure_cb(callback)
 
@@ -287,17 +438,23 @@ function git.is_ignored(file_path, callback)
         return
     end
 
-    git.get_repo_root(function(root)
+    get_repo_root_cached(function(root)
         if not root then
             callback(false)
             return
         end
 
-        local cmd = string.format("git check-ignore %s", file_path)
+        -- git exits on a path outside the repository, so leave those (and any
+        -- path whose spelling doesn't obviously match the root) to a one-shot check.
+        if is_absolute(file_path) then
+            local norm_root = normalize_path(root):gsub("/$", "") .. "/"
+            if normalize_path(file_path):sub(1, #norm_root) ~= norm_root then
+                check_ignore_once(root, file_path, callback)
+                return
+            end
+        end
 
-        run_git_command(cmd, function(result)
-            callback(result ~= nil and result ~= "")
-        end)
+        check_ignore(root, file_path, callback)
     end)
 end
 
