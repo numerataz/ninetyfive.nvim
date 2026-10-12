@@ -19,18 +19,22 @@ T["git output isn't dropped when the process exits before stdout is read"] = fun
     local missing = child.lua_get([[(function()
         local git = require("ninetyfive.git")
         vim.cmd.edit(vim.fn.getcwd() .. "/README.md")
-        local missing, done, total = 0, 0, 2000
-        for _ = 1, total do
-            git.get_repo_root(function(root)
-                if not root then
-                    missing = missing + 1
-                end
-                done = done + 1
+        -- Batches keep the number of open pipes under macOS's default fd limit.
+        local missing = 0
+        for _ = 1, 40 do
+            local done, batch = 0, 50
+            for _ = 1, batch do
+                git.get_repo_root(function(root)
+                    if not root then
+                        missing = missing + 1
+                    end
+                    done = done + 1
+                end)
+            end
+            vim.wait(10000, function()
+                return done == batch
             end)
         end
-        vim.wait(30000, function()
-            return done == total
-        end)
         return missing
     end)()]])
     MiniTest.expect.equality(missing, 0)
