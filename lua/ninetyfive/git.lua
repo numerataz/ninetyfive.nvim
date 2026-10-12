@@ -23,24 +23,33 @@ local function uv_run_async(cmd, cwd, callback)
     local stderr = uv.new_pipe(false)
     local out = {}
     local proc
+    -- The exit callback can run before stdout has been drained, so only report
+    -- once the process has exited and stdout has hit EOF.
+    local exit_code, stdout_done
+
+    local function finish()
+        if exit_code == nil or not stdout_done then
+            return
+        end
+        if exit_code == 0 then
+            callback((table.concat(out):gsub("\n$", "")))
+        else
+            callback(nil)
+        end
+    end
 
     proc = uv.spawn(
         "sh",
         { args = { "-c", cmd }, cwd = cwd, stdio = { nil, stdout, stderr } },
         function(code)
-            stdout:read_stop()
             stderr:read_stop()
-            stdout:close()
             stderr:close()
 
             if proc then
                 proc:close()
             end
-            if code == 0 then
-                callback((table.concat(out):gsub("\n$", "")))
-            else
-                callback(nil)
-            end
+            exit_code = code
+            finish()
         end
     )
 
@@ -52,7 +61,12 @@ local function uv_run_async(cmd, cwd, callback)
     stdout:read_start(function(_, data)
         if data then
             out[#out + 1] = data
+            return
         end
+        stdout:read_stop()
+        stdout:close()
+        stdout_done = true
+        finish()
     end)
 
     stderr:read_start(function() end)
