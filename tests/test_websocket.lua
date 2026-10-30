@@ -145,4 +145,74 @@ describe("websocket proxy stdout", function()
         on_stdout(1, { "" }, "stdout")
         eq(c.completion, { "tail" })
     end)
+
+    describe("git requests", function()
+        local git = require("ninetyfive.git")
+        local original_get_commit, original_get_blob, original_send
+        local sent
+
+        before_each(function()
+            original_get_commit, original_get_blob = git.get_commit, git.get_blob
+            original_send = websocket.send_message
+            sent = {}
+            websocket.send_message = function(message)
+                table.insert(sent, vim.json.decode(message))
+                return true
+            end
+            -- Like the real functions, these only report through the (optional) callback.
+            git.get_commit = function(hash, callback)
+                vim.schedule(function()
+                    if callback then
+                        callback({ parents = { "p1" }, message = "msg " .. hash, files = {} })
+                    end
+                end)
+            end
+            git.get_blob = function(_, _, callback)
+                vim.schedule(function()
+                    if callback then
+                        callback({ blob = "YmxvYg==", diff = "" })
+                    end
+                end)
+            end
+        end)
+
+        after_each(function()
+            git.get_commit, git.get_blob = original_get_commit, original_get_blob
+            websocket.send_message = original_send
+        end)
+
+        it("replies to get-commit once git reports the commit", function()
+            on_stdout(1, { msg({ type = "get-commit", commitHash = "abc" }), "" }, "stdout")
+            vim.wait(1000, function()
+                return #sent > 0
+            end)
+            eq(sent, {
+                {
+                    type = "commit",
+                    commitHash = "abc",
+                    commit = { parents = { "p1" }, message = "msg abc", files = {} },
+                },
+            })
+        end)
+
+        it("replies to get-blob once git reports the blob", function()
+            on_stdout(1, {
+                msg({ type = "get-blob", commitHash = "abc", objectHash = "def", path = "a.lua" }),
+                "",
+            }, "stdout")
+            vim.wait(1000, function()
+                return #sent > 0
+            end)
+            eq(sent, {
+                {
+                    type = "blob",
+                    commitHash = "abc",
+                    objectHash = "def",
+                    path = "a.lua",
+                    blobBytes = "YmxvYg==",
+                    diffBytes = "",
+                },
+            })
+        end)
+    end)
 end)

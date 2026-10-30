@@ -180,32 +180,34 @@ local function handle_line(line)
             name = parsed.name,
         }
     elseif msg_type == "get-commit" then
-        local commit = git.get_commit(parsed.commitHash)
-        if commit then
-            local send_commit = vim.json.encode({
-                type = "commit",
-                commitHash = parsed.commitHash,
-                commit = commit,
-            })
-            vim.schedule(function()
-                Websocket.send_message(send_commit)
-            end)
-        end
+        git.get_commit(parsed.commitHash, function(commit)
+            if commit then
+                local send_commit = vim.json.encode({
+                    type = "commit",
+                    commitHash = parsed.commitHash,
+                    commit = commit,
+                })
+                vim.schedule(function()
+                    Websocket.send_message(send_commit)
+                end)
+            end
+        end)
     elseif msg_type == "get-blob" then
-        local blob = git.get_blob(parsed.commitHash, parsed.path)
-        if blob then
-            local send_blob = vim.json.encode({
-                type = "blob",
-                commitHash = parsed.commitHash,
-                objectHash = parsed.objectHash,
-                path = parsed.path,
-                blobBytes = blob.blob,
-                diffBytes = blob.diff,
-            })
-            vim.schedule(function()
-                Websocket.send_message(send_blob)
-            end)
-        end
+        git.get_blob(parsed.commitHash, parsed.path, function(blob)
+            if blob then
+                local send_blob = vim.json.encode({
+                    type = "blob",
+                    commitHash = parsed.commitHash,
+                    objectHash = parsed.objectHash,
+                    path = parsed.path,
+                    blobBytes = blob.blob,
+                    diffBytes = blob.diff,
+                })
+                vim.schedule(function()
+                    Websocket.send_message(send_blob)
+                end)
+            end
+        end)
     else
         local c = Completion.get()
         if c then
