@@ -162,6 +162,120 @@ function Websocket.shutdown()
     end
 end
 
+local function handle_line(line)
+    log.debug("websocket", "Got message line from websocket: ", line)
+
+    local ok, parsed = pcall(vim.json.decode, line)
+    if not ok or type(parsed) ~= "table" then
+        log.debug("websocket", "Failed to parse JSON line: ", line)
+        return
+    end
+
+    local msg_type = parsed.type
+
+    if msg_type == "subscription-info" then
+        log.debug("messages", "<- [subscription-info]", parsed)
+        subscription_info = {
+            is_paid = parsed.isPaid,
+            name = parsed.name,
+        }
+    elseif msg_type == "get-commit" then
+        git.get_commit(parsed.commitHash, function(commit)
+            if commit then
+                local send_commit = vim.json.encode({
+                    type = "commit",
+                    commitHash = parsed.commitHash,
+                    commit = commit,
+                })
+                vim.schedule(function()
+                    Websocket.send_message(send_commit)
+                end)
+            end
+        end)
+    elseif msg_type == "get-blob" then
+        git.get_blob(parsed.commitHash, parsed.path, function(blob)
+            if blob then
+                local send_blob = vim.json.encode({
+                    type = "blob",
+                    commitHash = parsed.commitHash,
+                    objectHash = parsed.objectHash,
+                    path = parsed.path,
+                    blobBytes = blob.blob,
+                    diffBytes = blob.diff,
+                })
+                vim.schedule(function()
+                    Websocket.send_message(send_blob)
+                end)
+            end
+        end)
+    else
+        local c = Completion.get()
+        if c then
+            -- Message for a stale request: skip just this line.
+            if c.request_id ~= parsed.r then
+                return
+            end
+
+            if parsed.v and parsed.v ~= vim.NIL and parsed ~= nil then
+                table.insert(c.completion, parsed.v)
+                c.is_active = true
+            end
+
+            if parsed.flush == true or parsed["end"] == true then
+                table.insert(c.completion, vim.NIL)
+                if parsed["end"] == true then
+                    c.is_active = false
+                end
+            end
+
+            -- Only show if there's actual content (not just a flush marker)
+            local has_content = false
+            for _, item in ipairs(c.completion) do
+                if item ~= vim.NIL then
+                    has_content = true
+                    break
+                end
+            end
+            if has_content then
+                suggestion.show(c.completion)
+            end
+        end
+    end
+end
+
+-- Build an on_stdout handler for the proxy job. With stdout_buffered=false,
+-- Neovim delivers each chunk as a list where the first item continues the
+-- previous chunk's last line and the last item is an incomplete line (possibly
+-- ""), so the trailing item is held back until a later chunk completes it.
+-- EOF arrives as { "" } and flushes whatever is still held back.
+function Websocket._make_stdout_handler()
+    local pending = ""
+
+    return function(_, data, _)
+        if not data or #data == 0 then
+            return
+        end
+
+        local lines = { pending .. data[1] }
+        for i = 2, #data do
+            lines[i] = data[i]
+        end
+
+        local is_eof = #data == 1 and data[1] == ""
+        if is_eof then
+            pending = ""
+        else
+            pending = table.remove(lines)
+        end
+
+        for _, line in ipairs(lines) do
+            if line ~= "" then
+                handle_line(line)
+            end
+        end
+    end
+end
+
 -- Function to set up websocket connection
 function Websocket.setup_connection(server_uri, user_id, api_key)
     log.debug("websocket", "Setting up websocket connection")
@@ -265,92 +379,7 @@ function Websocket.setup_connection(server_uri, user_id, api_key)
         binary_path,
         ws_uri,
     }, {
-        on_stdout = function(_, data, _)
-            if not data then
-                return
-            end
-
-            for _, line in ipairs(data) do
-                if line ~= "" then
-                    log.debug("websocket", "Got message line from websocket: ", line)
-
-                    local ok, parsed = pcall(vim.json.decode, line)
-                    if not ok or type(parsed) ~= "table" then
-                        log.debug("websocket", "Failed to parse JSON line: ", line)
-                        goto continue
-                    end
-
-                    local msg_type = parsed.type
-
-                    if msg_type == "subscription-info" then
-                        log.debug("messages", "<- [subscription-info]", parsed)
-                        subscription_info = {
-                            is_paid = parsed.isPaid,
-                            name = parsed.name,
-                        }
-                    elseif msg_type == "get-commit" then
-                        local commit = git.get_commit(parsed.commitHash)
-                        if commit then
-                            local send_commit = vim.json.encode({
-                                type = "commit",
-                                commitHash = parsed.commitHash,
-                                commit = commit,
-                            })
-                            vim.schedule(function()
-                                Websocket.send_message(send_commit)
-                            end)
-                        end
-                    elseif msg_type == "get-blob" then
-                        local blob = git.get_blob(parsed.commitHash, parsed.path)
-                        if blob then
-                            local send_blob = vim.json.encode({
-                                type = "blob",
-                                commitHash = parsed.commitHash,
-                                objectHash = parsed.objectHash,
-                                path = parsed.path,
-                                blobBytes = blob.blob,
-                                diffBytes = blob.diff,
-                            })
-                            vim.schedule(function()
-                                Websocket.send_message(send_blob)
-                            end)
-                        end
-                    else
-                        local c = Completion.get()
-                        if c then
-                            if c.request_id ~= parsed.r then
-                                return
-                            end
-
-                            if parsed.v and parsed.v ~= vim.NIL and parsed ~= nil then
-                                table.insert(c.completion, parsed.v)
-                                c.is_active = true
-                            end
-
-                            if parsed.flush == true or parsed["end"] == true then
-                                table.insert(c.completion, vim.NIL)
-                                if parsed["end"] == true then
-                                    c.is_active = false
-                                end
-                            end
-
-                            -- Only show if there's actual content (not just a flush marker)
-                            local has_content = false
-                            for _, item in ipairs(c.completion) do
-                                if item ~= vim.NIL then
-                                    has_content = true
-                                    break
-                                end
-                            end
-                            if has_content then
-                                suggestion.show(c.completion)
-                            end
-                        end
-                    end
-                end
-                ::continue::
-            end
-        end,
+        on_stdout = Websocket._make_stdout_handler(),
         on_stderr = function(_, data, _)
             if data and #data > 0 then
                 local message = table.concat(data, "\n")
