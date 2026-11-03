@@ -6,6 +6,35 @@ local http = require("ninetyfive.http")
 ---@alias Callback fun(...)
 local noop = function(...) end
 
+local B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+-- Base64 encode without vim.base64, which Neovim only has from 0.10.
+local function base64_encode_fallback(data)
+    local out = {}
+    for i = 1, #data, 3 do
+        local a, b, c = data:byte(i, i + 2)
+        local n = a * 65536 + (b or 0) * 256 + (c or 0)
+        local c1 = math.floor(n / 262144) % 64
+        local c2 = math.floor(n / 4096) % 64
+        local c3 = math.floor(n / 64) % 64
+        local c4 = n % 64
+        out[#out + 1] = B64_CHARS:sub(c1 + 1, c1 + 1)
+            .. B64_CHARS:sub(c2 + 1, c2 + 1)
+            .. (b and B64_CHARS:sub(c3 + 1, c3 + 1) or "=")
+            .. (c and B64_CHARS:sub(c4 + 1, c4 + 1) or "=")
+    end
+    return table.concat(out)
+end
+
+git._base64_encode_fallback = base64_encode_fallback
+
+local function base64_encode(data)
+    if vim.base64 then
+        return vim.base64.encode(data)
+    end
+    return base64_encode_fallback(data)
+end
+
 ---@param cb Callback|nil
 ---@return Callback
 local function ensure_cb(cb)
@@ -14,6 +43,10 @@ end
 
 local CHUNK_SIZE = 25
 
+-- `cmd` is either a shell command string (run through `sh -c`) or an argv list
+-- such as { "git", "show", hash }, which is spawned directly without a shell.
+-- Anything built from untrusted input must use the argv form.
+---@param cmd string|string[]
 ---@param callback Callback|nil
 ---@return Callback|nil
 local function uv_run_async(cmd, cwd, callback)
@@ -38,9 +71,16 @@ local function uv_run_async(cmd, cwd, callback)
         end
     end
 
+    local file, args
+    if type(cmd) == "table" then
+        file, args = cmd[1], vim.list_slice(cmd, 2)
+    else
+        file, args = "sh", { "-c", cmd }
+    end
+
     proc = uv.spawn(
-        "sh",
-        { args = { "-c", cmd }, cwd = cwd, stdio = { nil, stdout, stderr } },
+        file,
+        { args = args, cwd = cwd, stdio = { nil, stdout, stderr } },
         function(code)
             stderr:read_stop()
             stderr:close()
@@ -54,6 +94,8 @@ local function uv_run_async(cmd, cwd, callback)
     )
 
     if not proc then
+        stdout:close()
+        stderr:close()
         callback(nil)
         return
     end
@@ -133,6 +175,12 @@ git.get_head = function(callback)
     end)
 end
 
+-- Commit hashes in get-commit/get-blob requests come from the server, so only
+-- accept full 40-character hex SHAs.
+local function is_commit_hash(hash)
+    return type(hash) == "string" and #hash == 40 and hash:match("^%x+$") ~= nil
+end
+
 local function parse_diff_numstat(raw)
     local diff = {}
     for line in raw:gmatch("[^\r\n]+") do
@@ -180,7 +228,13 @@ end
 
 function git.get_commit(hash, callback)
     callback = ensure_cb(callback)
-    run_git_command(string.format("git show --numstat %s", hash), function(diff_stdout)
+    if not is_commit_hash(hash) then
+        log.debug("git", "rejecting invalid commit hash: %s", tostring(hash))
+        callback(nil)
+        return
+    end
+
+    run_git_command({ "git", "show", "--numstat", hash, "--" }, function(diff_stdout)
         if not diff_stdout then
             callback(nil)
             return
@@ -189,7 +243,7 @@ function git.get_commit(hash, callback)
         local diff = parse_diff_numstat(diff_stdout)
 
         run_git_command(
-            string.format("git log -1 --pretty=format:%%P%%n%%B %s", hash),
+            { "git", "log", "-1", "--pretty=format:%P%n%B", hash, "--" },
             function(commit_info)
                 if not commit_info then
                     callback(nil)
@@ -203,7 +257,7 @@ function git.get_commit(hash, callback)
                 end
 
                 run_git_command(
-                    string.format("git ls-tree -r -l --full-tree %s", hash),
+                    { "git", "ls-tree", "-r", "-l", "--full-tree", hash },
                     function(ls_tree_stdout)
                         if not ls_tree_stdout then
                             callback(nil)
@@ -241,15 +295,22 @@ end
 
 function git.get_blob(hash, file, callback)
     callback = ensure_cb(callback)
-    local blob_command = string.format("git show %s:%s", hash, file)
+    if not is_commit_hash(hash) or type(file) ~= "string" or file == "" then
+        log.debug("git", "rejecting invalid blob request: %s:%s", tostring(hash), tostring(file))
+        callback(nil)
+        return
+    end
 
-    run_git_command(blob_command, function(blob)
+    -- `<hash>:<path>` is a single revision argument, so it can't go after `--`;
+    -- it starts with the validated hash and so can't be read as an option.
+    run_git_command({ "git", "show", hash .. ":" .. file }, function(blob)
         if not blob then
             callback(nil)
             return
         end
 
-        run_git_command(string.format("git rev-list --parents -n 1 %s", hash), function(parent_line)
+        local rev_list = { "git", "rev-list", "--parents", "-n", "1", hash, "--" }
+        run_git_command(rev_list, function(parent_line)
             if not parent_line then
                 callback(nil)
                 return
@@ -259,15 +320,14 @@ function git.get_blob(hash, file, callback)
             local parent = parents[2]
 
             local function finish(encoded_diff)
-                local encoded_blob = vim.base64.encode(blob)
+                local encoded_blob = base64_encode(blob)
                 callback({ blob = encoded_blob, diff = encoded_diff or "" })
             end
 
             if parent then
-                local diff_command = string.format("git diff %s %s -- %s", parent, hash, file)
-                run_git_command(diff_command, function(diff)
+                run_git_command({ "git", "diff", parent, hash, "--", file }, function(diff)
                     if diff then
-                        finish(vim.base64.encode(diff))
+                        finish(base64_encode(diff))
                     else
                         finish("")
                     end
