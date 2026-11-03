@@ -8,6 +8,7 @@ local plugin_version = require("ninetyfive.version")
 local util = require("ninetyfive.util")
 
 local Websocket = {}
+local connection_id = 0
 
 -- Reconnection settings
 local reconnect_delay = 1000 -- ms
@@ -394,6 +395,8 @@ function Websocket.setup_connection(server_uri, user_id, api_key)
         return false
     end
 
+    connection_id = connection_id + 1
+
     log.debug("websocket", "Started process with job ID: " .. _G.Ninetyfive.websocket_job)
 
     return true
@@ -414,6 +417,13 @@ end
 
 function Websocket.is_connected()
     return _G.Ninetyfive and _G.Ninetyfive.websocket_job and _G.Ninetyfive.websocket_job > 0
+end
+
+-- A new proxy process starts a fresh server session with no active file.
+function Websocket.get_connection_id()
+    if Websocket.is_connected() then
+        return connection_id
+    end
 end
 
 function Websocket.clear_subscription_info()
