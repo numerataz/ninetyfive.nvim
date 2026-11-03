@@ -56,7 +56,9 @@ jobs:
         run: |
           mkdir -p deps
           if [ ! -d deps/mini.nvim ]; then
-            git clone --depth 1 https://github.com/echasnovski/mini.nvim deps/mini.nvim
+            # Pinned: mini.nvim's main uses vim.uv, which Neovim 0.9 (the
+            # Ubuntu PPA's version) lacks.
+            git clone --depth 1 --branch v0.18.0 https://github.com/echasnovski/mini.nvim deps/mini.nvim
           fi
 
       - name: Run tests (Unix)
