@@ -11,6 +11,7 @@ Communication.__index = Communication
 
 local active_bufnr = nil
 local active_content = nil
+local active_connection_id = nil
 
 local function repo_name_from_path(path)
     if not path or path == "" then
@@ -296,6 +297,7 @@ function Communication:send_file_content(opts)
                 else
                     active_bufnr = bufnr
                     active_content = content
+                    active_connection_id = websocket.get_connection_id()
                 end
             end)
         end)
@@ -316,9 +318,14 @@ function Communication:send_file_delta(opts)
         return false, "invalid_buffer"
     end
 
+    local connection_id = websocket.get_connection_id()
+    if not connection_id then
+        return false, "not_connected"
+    end
+
     local new_content = buffer_content(bufnr)
 
-    if active_bufnr ~= bufnr then
+    if active_bufnr ~= bufnr or active_connection_id ~= connection_id then
         local bufname = vim.api.nvim_buf_get_name(bufnr)
         local path = bufname ~= "" and relative_path(bufname) or string.format("Untitled-%d", bufnr)
 
@@ -343,6 +350,7 @@ function Communication:send_file_delta(opts)
 
         active_bufnr = bufnr
         active_content = new_content
+        active_connection_id = connection_id
         return true
     end
 
@@ -423,7 +431,10 @@ function Communication:_request_websocket_completion(opts)
 
             vim.schedule(function()
                 -- Send file delta first to ensure server has latest content
-                self:send_file_delta({ bufnr = bufnr })
+                if not self:send_file_delta({ bufnr = bufnr }) then
+                    log.debug("comm", "skipping completion request - file sync failed")
+                    return
+                end
 
                 if not websocket.send_message(message) then
                     log.debug("comm", "failed to send completion request")
@@ -469,6 +480,7 @@ function Communication:resync_all_buffers()
 
     active_bufnr = nil
     active_content = nil
+    active_connection_id = nil
 
     local buffers = vim.api.nvim_list_bufs()
     for _, bufnr in ipairs(buffers) do
