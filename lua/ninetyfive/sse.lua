@@ -5,6 +5,7 @@ local git = require("ninetyfive.git")
 local ignored_filetypes = require("ninetyfive.ignored_filetypes")
 local global_state = require("ninetyfive.state")
 local util = require("ninetyfive.util")
+local LineBuffer = require("ninetyfive.util.line_buffer")
 
 local Sse = {}
 
@@ -168,13 +169,11 @@ local function start_request(payload)
 
     log.debug("sse", "payload bytes: %d (gzip=%s)", #body, tostring(use_gzip))
 
+    local stdout_lines = LineBuffer.new()
+
     local job_opts = {
         on_stdout = function(_, data, _)
-            if not data then
-                return
-            end
-
-            for _, line in ipairs(data) do
+            for _, line in ipairs(stdout_lines(data)) do
                 if type(line) ~= "string" then
                     goto continue
                 end

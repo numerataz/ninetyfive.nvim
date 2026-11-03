@@ -15,6 +15,13 @@ local function eval_lua(code)
     return child.lua_get(code)
 end
 
+local function eq_state(state, expected)
+    MiniTest.expect.equality(
+        { completion = state.completion, is_active = state.is_active },
+        expected
+    )
+end
+
 T["start_request always uses stdin for curl data"] = function()
     child.lua([[
         -- Initialize the global Ninetyfive object
@@ -192,6 +199,100 @@ T["start_request sends body via chansend"] = function()
     -- Verify data was sent
     local sent_data_type = eval_lua("_G.sent_data_type")
     MiniTest.expect.equality(sent_data_type, "string", "Sent data should be a string")
+end
+
+-- Starts a completion request with curl stubbed out and keeps curl's on_stdout
+-- handler in the child as `_G.sse_on_stdout`. `_G.sse_state()` reports the
+-- completion (vim.NIL flush markers as "<NIL>") and how often it was shown.
+local function setup_sse_stdout()
+    child.lua([[
+        _G.Ninetyfive = { config = { debug = false } }
+
+        local suggestion = require("ninetyfive.suggestion")
+        local Completion = require("ninetyfive.completion")
+        local sse = require("ninetyfive.sse")
+
+        _G.sse_shown = 0
+        suggestion.show = function()
+            _G.sse_shown = _G.sse_shown + 1
+        end
+
+        vim.fn.jobstart = function(_, opts)
+            _G.sse_on_stdout = opts.on_stdout
+            return 1
+        end
+        vim.fn.chansend = function()
+            return 1
+        end
+        vim.fn.chanclose = function()
+            return 0
+        end
+
+        sse.setup({ server_uri = "http://test.example.com", user_id = "test" })
+        Completion.clear()
+
+        vim.cmd("new")
+        local bufnr = vim.api.nvim_get_current_buf()
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "test content" })
+        sse.request_completion({ buf = bufnr })
+
+        vim.wait(1000, function()
+            return _G.sse_on_stdout ~= nil
+        end)
+
+        _G.sse_state = function()
+            local c = Completion.get()
+            local items = {}
+            for _, item in ipairs(c and c.completion or {}) do
+                table.insert(items, item == vim.NIL and "<NIL>" or item)
+            end
+            return {
+                request_id = c and c.request_id or "",
+                completion = items,
+                is_active = c and c.is_active or false,
+                shown = _G.sse_shown,
+            }
+        end
+    ]])
+    MiniTest.expect.equality(child.lua_get("_G.sse_on_stdout ~= nil"), true)
+end
+
+local function feed(data)
+    child.lua("_G.sse_on_stdout(1, ...)", { data })
+    return child.lua_get("_G.sse_state()")
+end
+
+T["on_stdout reassembles a data line split across two callbacks"] = function()
+    setup_sse_stdout()
+    local id = child.lua_get("_G.sse_state().request_id")
+    local line = "data: " .. vim.json.encode({ id = id, content = "hello" })
+    local cut = math.floor(#line / 2)
+
+    eq_state(feed({ line:sub(1, cut) }), { completion = {}, is_active = false })
+    local state = feed({ line:sub(cut + 1), "" })
+    eq_state(state, { completion = { "hello" }, is_active = true })
+    MiniTest.expect.equality(state.shown, 1)
+end
+
+T["on_stdout holds a trailing partial line until a later callback completes it"] = function()
+    setup_sse_stdout()
+    local id = child.lua_get("_G.sse_state().request_id")
+    local first = "data: " .. vim.json.encode({ id = id, content = "a" })
+    local last = "data: " .. vim.json.encode({ id = id, ["end"] = true })
+    local cut = 10
+
+    -- SSE events end with a blank line; the end event is cut off mid-line.
+    eq_state(feed({ first, "", last:sub(1, cut) }), { completion = { "a" }, is_active = true })
+    eq_state(feed({ last:sub(cut + 1), "" }), { completion = { "a", "<NIL>" }, is_active = false })
+end
+
+T["on_stdout processes an unterminated last line at EOF"] = function()
+    setup_sse_stdout()
+    local id = child.lua_get("_G.sse_state().request_id")
+    local line = "data: " .. vim.json.encode({ id = id, content = "tail" })
+
+    eq_state(feed({ line }), { completion = {}, is_active = false })
+    eq_state(feed({ "" }), { completion = { "tail" }, is_active = true })
 end
 
 return T
